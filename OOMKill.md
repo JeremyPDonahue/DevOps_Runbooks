@@ -25,15 +25,19 @@ kubectl get pods -n <namespace> --field-selector=status.phase!=Running
 kubectl describe pod <pod-name> | grep -i "OOMKilled"
 ```
 2. Identify Affected Workloads
-Find which Deployment, StatefulSet, or DaemonSet owns the pod:
+- Find which Deployment, StatefulSet, or DaemonSet owns the pod:
+
 ```
 kubectl get pod <pod-name> -o jsonpath='{.metadata.ownerReferences[0].name}'
 ```
+
 3. Triage Resource Usage
-Check recent resource usage (if Metrics Server or Prometheus is installed):
+- Check recent resource usage (if Metrics Server or Prometheus is installed):
+
 ```
 kubectl top pod <pod-name> -n <namespace>
 ```
+
 Estimate if memory usage exceeded current limits/requests.
 
 4. Immediate Stabilization Actions
