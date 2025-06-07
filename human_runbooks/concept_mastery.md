@@ -4,13 +4,13 @@ A repeatable method to learn, retain, and apply technical concepts daily.
 
 ---
 
-## 🔁 Daily Learning Cycle (Time-Boxed)
+## 🔁 Daily Learning Cycle
 
 ### ✅ 1. Scope & Frame – *15–20 min*
 - Define the concept in one sentence.
 - Ask: “Why does this matter?”
 - Break it down into 3–5 subtopics or subtasks.
-- Add to your `concepts_todo.md` or Kanban board.
+    - Add to your `concepts_todo.md` or Kanban board.
 
 ---
 
