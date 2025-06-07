@@ -1,4 +1,4 @@
-# 🧠 Daily Concept Mastery System (with Time Guidance)
+# 🧠 Daily Concept Mastery System
 
 A repeatable method to learn, retain, and apply technical concepts daily.
 
