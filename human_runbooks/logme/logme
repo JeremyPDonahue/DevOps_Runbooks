@@ -1,0 +1,130 @@
+#!/bin/bash
+
+BASE_DIR="$HOME/logme"
+TODAY=$(date +"%m-%d-%y")
+TODAY_PRETTY=$(date +"%x")
+TODAY_FILE="$BASE_DIR/activity/daily-activity-${TODAY}.log"
+TODAY_Q="$BASE_DIR/questions/questions-${TODAY}.md"
+TODO_FILE="$BASE_DIR/todo/todo.md"
+DONE_FILE="$BASE_DIR/todo/done.md"
+
+mkdir -p "$BASE_DIR/activity" "$BASE_DIR/questions" "$BASE_DIR/todo"
+
+log_activity() {
+  echo "[$(date +"%H:%M:%S")] $*" >> "$TODAY_FILE"
+}
+
+view_by_date() {
+  DATE_STR=$(date -jf "%m/%d/%y" "$1" +"%m-%d-%y" 2>/dev/null)
+  if [[ $? -ne 0 ]]; then echo "Invalid date format. Use MM/DD/YY"; exit 1; fi
+  FILE="$BASE_DIR/activity/daily-activity-${DATE_STR}.log"
+  [[ -f $FILE ]] && cat "$FILE" || echo "No log found for $1"
+}
+
+log_question() {
+  echo "- $*" >> "$TODAY_Q"
+}
+
+init_todo() {
+  [[ ! -f "$TODO_FILE" ]] && echo "# TODO" > "$TODO_FILE"
+  [[ ! -f "$DONE_FILE" ]] && echo "# DONE" > "$DONE_FILE"
+}
+
+add_todo() {
+  init_todo
+  echo "- [$TODAY_PRETTY] $1" >> "$TODO_FILE"
+}
+
+view_todo() {
+  cat "$TODO_FILE"
+}
+
+rm_todo() {
+  init_todo
+  ITEMS=$(grep '^-' "$TODO_FILE")
+  if [[ -z "$ITEMS" ]]; then echo "No TODOs to remove."; exit 0; fi
+
+  echo "$ITEMS" | nl -w2 -s'. '
+  echo -n "> "
+  read SELECTION
+
+  SELECTED=$(echo "$ITEMS" | sed -n "${SELECTION}p")
+  if [[ -z "$SELECTED" ]]; then echo "Invalid selection."; exit 1; fi
+
+  # remove from todo.md
+  grep -vF "$SELECTED" "$TODO_FILE" > "$TODO_FILE.tmp" && mv "$TODO_FILE.tmp" "$TODO_FILE"
+
+  # add to done.md under today's date
+  if ! grep -q "^$TODAY_PRETTY:" "$DONE_FILE"; then
+    echo -e "\n$TODAY_PRETTY:" >> "$DONE_FILE"
+  fi
+  sed -i '' "/^$TODAY_PRETTY:/a\\
+$SELECTED
+" "$DONE_FILE"
+
+  echo "Marked as done: $SELECTED"
+}
+
+view_completed_on() {
+  DATE=$(date -jf "%m/%d/%y" "$1" +"%x" 2>/dev/null)
+  if [[ $? -ne 0 ]]; then echo "Invalid date format."; exit 1; fi
+  awk -v d="$DATE" '
+    $0 == d ":" {f=1; next}
+    f && /^$/ {exit}
+    f {print}
+  ' "$DONE_FILE"
+}
+
+view_completed_between() {
+  START=$(date -jf "%m/%d/%y" "$(echo $1 | cut -d- -f1)" +"%s")
+  END=$(date -jf "%m/%d/%y" "$(echo $1 | cut -d- -f2)" +"%s")
+  [[ $? -ne 0 ]] && echo "Invalid date range." && exit 1
+
+  TMP_OUT="/tmp/completed-summary-$(date +%s).txt"
+  echo "# Completed Tasks Between $(date -r $START +%x) and $(date -r $END +%x)" > "$TMP_OUT"
+
+  awk -v start="$START" -v end="$END" '
+    /^[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2}:/ {
+      cmd = "date -jf \"%x\" \"" substr($0, 1, length($0)-1) "\" +%s"
+      cmd | getline ts
+      close(cmd)
+      if (ts >= start && ts <= end) {
+        print "\n" $0
+        reading = 1
+      } else {
+        reading = 0
+      }
+      next
+    }
+    reading { print }
+  ' "$DONE_FILE" >> "$TMP_OUT"
+
+  cat "$TMP_OUT"
+}
+
+case "$1" in
+  --date)
+    view_by_date "$2"
+    ;;
+  --todo)
+    shift; add_todo "$*"
+    ;;
+  --todo-view)
+    view_todo
+    ;;
+  --todo-rm)
+    rm_todo
+    ;;
+  --completed-on)
+    view_completed_on "$2"
+    ;;
+  --completed-between)
+    view_completed_between "$2"
+    ;;
+  --q)
+    shift; log_question "$*"
+    ;;
+  *)
+    log_activity "$*"
+    ;;
+esac
