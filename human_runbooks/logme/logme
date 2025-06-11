@@ -112,7 +112,7 @@ case "$1" in
   --todo-view)
     view_todo
     ;;
-  --todo-rm)
+  --todo-done)
     rm_todo
     ;;
   --completed-on)
