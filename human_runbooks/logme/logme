@@ -95,7 +95,6 @@ case "$1" in
 
     echo -n "> Select question to answer: "
     read qnum
-    selected=$(eval "echo \"\${q_$qnum}\"")
     if [ -n "$selected" ]; then
       echo "Answer: "
       read ans
