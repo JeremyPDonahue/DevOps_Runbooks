@@ -1,130 +1,158 @@
-#!/bin/bash
+#!/bin/sh
 
-BASE_DIR="$HOME/logme"
-TODAY=$(date +"%m-%d-%y")
-TODAY_PRETTY=$(date +"%x")
-TODAY_FILE="$BASE_DIR/activity/daily-activity-${TODAY}.log"
-TODAY_Q="$BASE_DIR/questions/questions-${TODAY}.md"
-TODO_FILE="$BASE_DIR/todo/todo.md"
-DONE_FILE="$BASE_DIR/todo/done.md"
+# Base directories
+LOGME_DIR="$HOME/logme"
+QUESTIONS_DIR="$LOGME_DIR/questions"
+LOGS_DIR="$LOGME_DIR/daily"
+TODOS_FILE="$LOGME_DIR/todo.md"
+DONE_FILE="$LOGME_DIR/done.md"
+QUESTIONS_FILE="$QUESTIONS_DIR/questions.md"
+ANSWERS_FILE="$QUESTIONS_DIR/answered.md"
+TODAY="$(date +'%m-%d-%y')"
 
-mkdir -p "$BASE_DIR/activity" "$BASE_DIR/questions" "$BASE_DIR/todo"
+mkdir -p "$LOGME_DIR" "$QUESTIONS_DIR" "$LOGS_DIR"
 
-log_activity() {
-  echo "[$(date +"%H:%M:%S")] $*" >> "$TODAY_FILE"
+log_file="$LOGS_DIR/daily-activity-$TODAY.log"
+
+write_log() {
+  echo "[$(date +'%H:%M:%S')] $1" >> "$log_file"
 }
 
-view_by_date() {
-  DATE_STR=$(date -jf "%m/%d/%y" "$1" +"%m-%d-%y" 2>/dev/null)
-  if [[ $? -ne 0 ]]; then echo "Invalid date format. Use MM/DD/YY"; exit 1; fi
-  FILE="$BASE_DIR/activity/daily-activity-${DATE_STR}.log"
-  [[ -f $FILE ]] && cat "$FILE" || echo "No log found for $1"
+show_help() {
+  cat <<EOF
+Usage: logme [OPTION] [STRING]
+
+Commands:
+  --help                Show this help message.
+  --date <mm/dd/yy>     Show the log for a specific date.
+  --todo <STRING>       Add a todo item for today.
+  --todo-view           Show current todo list.
+  --todo-done           Select a todo item to mark as done.
+  --completed-on <date>   Show completed items for the given date.
+  --completed-between <start>-<end> Show completed tasks across dates.
+  --q <STRING>          Log a question for today.
+  --qs-view             View and optionally answer pending questions.
+  --qs-answered         View all answered questions.
+
+Examples:
+  logme "Fixed ingress bug in staging"
+  logme --todo "Write K8s node pool playbook"
+  logme --q "Why does CoreDNS restart on update?"
+EOF
 }
 
-log_question() {
-  echo "- $*" >> "$TODAY_Q"
+to_filename_date() {
+  echo "$1" | sed 's#/#-#g'
 }
 
-init_todo() {
-  [[ ! -f "$TODO_FILE" ]] && echo "# TODO" > "$TODO_FILE"
-  [[ ! -f "$DONE_FILE" ]] && echo "# DONE" > "$DONE_FILE"
-}
-
-add_todo() {
-  init_todo
-  echo "- [$TODAY_PRETTY] $1" >> "$TODO_FILE"
-}
-
-view_todo() {
-  cat "$TODO_FILE"
-}
-
-rm_todo() {
-  init_todo
-  ITEMS=$(grep '^-' "$TODO_FILE")
-  if [[ -z "$ITEMS" ]]; then echo "No TODOs to remove."; exit 0; fi
-
-  echo "$ITEMS" | nl -w2 -s'. '
-  echo -n "> "
-  read SELECTION
-
-  SELECTED=$(echo "$ITEMS" | sed -n "${SELECTION}p")
-  if [[ -z "$SELECTED" ]]; then echo "Invalid selection."; exit 1; fi
-
-  # remove from todo.md
-  grep -vF "$SELECTED" "$TODO_FILE" > "$TODO_FILE.tmp" && mv "$TODO_FILE.tmp" "$TODO_FILE"
-
-  # add to done.md under today's date
-  if ! grep -q "^$TODAY_PRETTY:" "$DONE_FILE"; then
-    echo -e "\n$TODAY_PRETTY:" >> "$DONE_FILE"
-  fi
-  sed -i '' "/^$TODAY_PRETTY:/a\\
-$SELECTED
-" "$DONE_FILE"
-
-  echo "Marked as done: $SELECTED"
-}
-
-view_completed_on() {
-  DATE=$(date -jf "%m/%d/%y" "$1" +"%x" 2>/dev/null)
-  if [[ $? -ne 0 ]]; then echo "Invalid date format."; exit 1; fi
-  awk -v d="$DATE" '
-    $0 == d ":" {f=1; next}
-    f && /^$/ {exit}
-    f {print}
-  ' "$DONE_FILE"
-}
-
-view_completed_between() {
-  START=$(date -jf "%m/%d/%y" "$(echo $1 | cut -d- -f1)" +"%s")
-  END=$(date -jf "%m/%d/%y" "$(echo $1 | cut -d- -f2)" +"%s")
-  [[ $? -ne 0 ]] && echo "Invalid date range." && exit 1
-
-  TMP_OUT="/tmp/completed-summary-$(date +%s).txt"
-  echo "# Completed Tasks Between $(date -r $START +%x) and $(date -r $END +%x)" > "$TMP_OUT"
-
-  awk -v start="$START" -v end="$END" '
-    /^[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2}:/ {
-      cmd = "date -jf \"%x\" \"" substr($0, 1, length($0)-1) "\" +%s"
-      cmd | getline ts
-      close(cmd)
-      if (ts >= start && ts <= end) {
-        print "\n" $0
-        reading = 1
-      } else {
-        reading = 0
-      }
-      next
-    }
-    reading { print }
-  ' "$DONE_FILE" >> "$TMP_OUT"
-
-  cat "$TMP_OUT"
-}
-
+# Main logic
 case "$1" in
+  --help)
+    show_help
+    ;;
   --date)
-    view_by_date "$2"
+    DATE_FMT="$(to_filename_date "$2")"
+    cat "$LOGS_DIR/daily-activity-$DATE_FMT.log" 2>/dev/null || echo "No log for $2."
     ;;
   --todo)
-    shift; add_todo "$*"
+    if [ ! -f "$TODOS_FILE" ]; then
+      echo "# TODO" > "$TODOS_FILE"
+      echo "# DONE" >> "$TODOS_FILE"
+    fi
+    sed -i '' "/# DONE/i\\
+- [$TODAY] $2
+" "$TODOS_FILE"
     ;;
   --todo-view)
-    view_todo
+    cat "$TODOS_FILE"
     ;;
   --todo-done)
-    rm_todo
+    todos=$(awk '/# TODO/{f=1;next}/# DONE/{f=0}f' "$TODOS_FILE")
+    [ -z "$todos" ] && echo "No todos to mark as done." && exit 0
+    i=1
+    echo "$todos" | while IFS= read -r line; do
+      echo "$i. $line"
+      eval "todo_$i=\$line"
+      i=$((i+1))
+    done
+    echo -n "> "
+    read num
+    selected=$(eval "echo \$todo_$num")
+    if [ -n "$selected" ]; then
+      tmpfile=$(mktemp)
+      awk -v sel="$selected" '
+      BEGIN {found=0}
+      /^# TODO/ {print; found=1; next}
+      /^# DONE/ {found=0; print; next}
+      {if (found && $0 == sel) next; print}
+      ' "$TODOS_FILE" > "$tmpfile" && mv "$tmpfile" "$TODOS_FILE"
+
+      echo "" >> "$DONE_FILE"
+      echo "$TODAY:" >> "$DONE_FILE"
+      echo "$selected" >> "$DONE_FILE"
+    fi
     ;;
   --completed-on)
-    view_completed_on "$2"
+    grep -A 10 "$2:" "$DONE_FILE" | sed '/^[0-9]/q'
     ;;
   --completed-between)
-    view_completed_between "$2"
+    start=$(echo "$2" | cut -d'-' -f1)
+    end=$(echo "$2" | cut -d'-' -f2)
+    printing=0
+    while IFS= read -r line; do
+      case "$line" in
+        *:)
+          date_hdr=$(echo "$line" | sed 's/://')
+          [ "$date_hdr" = "$start" ] && printing=1
+          if [ "$printing" = 1 ]; then echo "$line"; fi
+          [ "$date_hdr" = "$end" ] && printing=0
+          ;;
+        *)
+          [ "$printing" = 1 ] && echo "$line"
+          ;;
+      esac
+    done < "$DONE_FILE"
     ;;
   --q)
-    shift; log_question "$*"
+    echo "[$TODAY] $2" >> "$QUESTIONS_FILE"
+    ;;
+  --qs-view)
+    [ ! -f "$QUESTIONS_FILE" ] && echo "No questions to answer." && exit 0
+    i=1
+    while IFS= read -r q; do
+      echo "$i. $q"
+      eval "qs_$i=\$q"
+      i=$((i+1))
+    done < "$QUESTIONS_FILE"
+
+    [ $i -eq 1 ] && echo "No questions to answer." && exit 0
+
+    echo -n "> Select a question number to answer (or press enter to skip): "
+    read sel
+    [ -z "$sel" ] && exit 0
+
+    q_line=$(eval "echo \$qs_$sel")
+    [ -z "$q_line" ] && echo "Invalid selection." && exit 1
+
+    echo "Answer:"
+    read ans
+
+    echo "" >> "$ANSWERS_FILE"
+    echo "$TODAY:" >> "$ANSWERS_FILE"
+    echo "Q: $q_line" >> "$ANSWERS_FILE"
+    echo "A: $ans" >> "$ANSWERS_FILE"
+
+    # Remove the answered question
+    tmpfile=$(mktemp)
+    while IFS= read -r line; do
+      [ "$line" != "$q_line" ] && echo "$line" >> "$tmpfile"
+    done < "$QUESTIONS_FILE"
+    mv "$tmpfile" "$QUESTIONS_FILE"
+    ;;
+  --qs-answered)
+    cat "$ANSWERS_FILE" 2>/dev/null || echo "No answered questions yet."
     ;;
   *)
-    log_activity "$*"
+    write_log "$*"
     ;;
 esac
