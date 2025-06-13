@@ -1,16 +1,16 @@
 #!/bin/sh
 
-# Base directories
+# Base directory
 LOGME_DIR="$HOME/logme"
-QUESTIONS_DIR="$LOGME_DIR/questions"
-LOGS_DIR="$LOGME_DIR/daily"
 TODOS_FILE="$LOGME_DIR/todo.md"
 DONE_FILE="$LOGME_DIR/done.md"
-QUESTIONS_FILE="$QUESTIONS_DIR/questions.md"
-ANSWERS_FILE="$QUESTIONS_DIR/answered.md"
+QUESTIONS_FILE="$LOGME_DIR/questions.md"
+ANSWERED_FILE="$LOGME_DIR/answered.md"
+LOGS_DIR="$LOGME_DIR/daily"
 TODAY="$(date +'%m-%d-%y')"
 
-mkdir -p "$LOGME_DIR" "$QUESTIONS_DIR" "$LOGS_DIR"
+mkdir -p "$LOGME_DIR" "$LOGS_DIR"
+touch "$TODOS_FILE" "$DONE_FILE" "$QUESTIONS_FILE" "$ANSWERED_FILE"
 
 log_file="$LOGS_DIR/daily-activity-$TODAY.log"
 
@@ -23,21 +23,21 @@ show_help() {
 Usage: logme [OPTION] [STRING]
 
 Commands:
-  --help                Show this help message.
-  --date <mm/dd/yy>     Show the log for a specific date.
-  --todo <STRING>       Add a todo item for today.
-  --todo-view           Show current todo list.
-  --todo-done           Select a todo item to mark as done.
-  --completed-on <date>   Show completed items for the given date.
-  --completed-between <start>-<end> Show completed tasks across dates.
-  --q <STRING>          Log a question for today.
-  --qs-view             View and optionally answer pending questions.
-  --qs-answered         View all answered questions.
+  -help                       Show this help message.
+  -date <mm/dd/yy>           Show the log for a specific date.
+  -todo <STRING>             Add a todo item for today.
+  -todo-view                 Show current todo list.
+  -todo-done                 Mark a todo item as done.
+  -show-done                 Show all completed tasks.
+  -q <STRING>                Log a question.
+  -qs-view                   View and answer pending questions.
+  -qs-answered               View answered questions.
+  -daily <STRING>            Log a daily activity entry.
 
 Examples:
-  logme "Fixed ingress bug in staging"
-  logme --todo "Write K8s node pool playbook"
-  logme --q "Why does CoreDNS restart on update?"
+  logme -daily "Fixed ingress bug in staging"
+  logme -todo "Write K8s node pool playbook"
+  logme -q "Why does CoreDNS restart on update?"
 EOF
 }
 
@@ -45,114 +45,72 @@ to_filename_date() {
   echo "$1" | sed 's#/#-#g'
 }
 
-# Main logic
 case "$1" in
-  --help)
+  -help)
     show_help
     ;;
-  --date)
+  -date)
     DATE_FMT="$(to_filename_date "$2")"
-    cat "$LOGS_DIR/daily-activity-$DATE_FMT.log" 2>/dev/null || echo "No log for $2."
+    cat "$LOGS_DIR/daily-activity-$DATE_FMT.log" || echo "No log for $2."
     ;;
-  --todo)
-    if [ ! -f "$TODOS_FILE" ]; then
-      echo "# TODO" > "$TODOS_FILE"
-      echo "# DONE" >> "$TODOS_FILE"
-    fi
-    sed -i '' "/# DONE/i\\
-- [$TODAY] $2
-" "$TODOS_FILE"
+  -todo)
+    echo "- [$TODAY] $2" >> "$TODOS_FILE"
     ;;
-  --todo-view)
+  -todo-view)
     cat "$TODOS_FILE"
     ;;
-  --todo-done)
-    todos=$(awk '/# TODO/{f=1;next}/# DONE/{f=0}f' "$TODOS_FILE")
-    [ -z "$todos" ] && echo "No todos to mark as done." && exit 0
+  -todo-done)
     i=1
-    echo "$todos" | while IFS= read -r line; do
+    while IFS= read -r line; do
       echo "$i. $line"
-      eval "todo_$i=\$line"
+      eval "todo_$i=\"$line\""
       i=$((i+1))
-    done
-    echo -n "> "
-    read num
-    selected=$(eval "echo \$todo_$num")
-    if [ -n "$selected" ]; then
-      tmpfile=$(mktemp)
-      awk -v sel="$selected" '
-      BEGIN {found=0}
-      /^# TODO/ {print; found=1; next}
-      /^# DONE/ {found=0; print; next}
-      {if (found && $0 == sel) next; print}
-      ' "$TODOS_FILE" > "$tmpfile" && mv "$tmpfile" "$TODOS_FILE"
+    done < "$TODOS_FILE"
 
-      echo "" >> "$DONE_FILE"
-      echo "$TODAY:" >> "$DONE_FILE"
-      echo "$selected" >> "$DONE_FILE"
+    [ "$i" -eq 1 ] && echo "No todos to mark as done." && exit 0
+
+    echo -n "> Select item to mark as done: "
+    read num
+    selected=$(eval "echo \"\${todo_$num}\"")
+    if [ -n "$selected" ]; then
+      grep -vF "$selected" "$TODOS_FILE" > "$TODOS_FILE.tmp" && mv "$TODOS_FILE.tmp" "$TODOS_FILE"
+      echo "$TODAY: $selected" >> "$DONE_FILE"
     fi
     ;;
-  --completed-on)
-    grep -A 10 "$2:" "$DONE_FILE" | sed '/^[0-9]/q'
+  -show-done)
+    cat "$DONE_FILE"
     ;;
-  --completed-between)
-    start=$(echo "$2" | cut -d'-' -f1)
-    end=$(echo "$2" | cut -d'-' -f2)
-    printing=0
-    while IFS= read -r line; do
-      case "$line" in
-        *:)
-          date_hdr=$(echo "$line" | sed 's/://')
-          [ "$date_hdr" = "$start" ] && printing=1
-          if [ "$printing" = 1 ]; then echo "$line"; fi
-          [ "$date_hdr" = "$end" ] && printing=0
-          ;;
-        *)
-          [ "$printing" = 1 ] && echo "$line"
-          ;;
-      esac
-    done < "$DONE_FILE"
+  -q)
+    echo "$TODAY: $2" >> "$QUESTIONS_FILE"
     ;;
-  --q)
-    echo "[$TODAY] $2" >> "$QUESTIONS_FILE"
-    ;;
-  --qs-view)
-    [ ! -f "$QUESTIONS_FILE" ] && echo "No questions to answer." && exit 0
+  -qs-view)
     i=1
-    while IFS= read -r q; do
-      echo "$i. $q"
-      eval "qs_$i=\$q"
+    while IFS= read -r line; do
+      echo "$i. $line"
+      eval "q_$i=\"$line\""
       i=$((i+1))
     done < "$QUESTIONS_FILE"
 
-    [ $i -eq 1 ] && echo "No questions to answer." && exit 0
+    [ "$i" -eq 1 ] && echo "No questions to answer." && exit 0
 
-    echo -n "> Select a question number to answer (or press enter to skip): "
-    read sel
-    [ -z "$sel" ] && exit 0
-
-    q_line=$(eval "echo \$qs_$sel")
-    [ -z "$q_line" ] && echo "Invalid selection." && exit 1
-
-    echo "Answer:"
-    read ans
-
-    echo "" >> "$ANSWERS_FILE"
-    echo "$TODAY:" >> "$ANSWERS_FILE"
-    echo "Q: $q_line" >> "$ANSWERS_FILE"
-    echo "A: $ans" >> "$ANSWERS_FILE"
-
-    # Remove the answered question
-    tmpfile=$(mktemp)
-    while IFS= read -r line; do
-      [ "$line" != "$q_line" ] && echo "$line" >> "$tmpfile"
-    done < "$QUESTIONS_FILE"
-    mv "$tmpfile" "$QUESTIONS_FILE"
+    echo -n "> Select question to answer: "
+    read qnum
+    selected=$(eval "echo \"\${q_$qnum}\"")
+    if [ -n "$selected" ]; then
+      echo "Answer: "
+      read ans
+      echo "$TODAY: Q: $selected" >> "$ANSWERED_FILE"
+      echo "$TODAY: A: $ans" >> "$ANSWERED_FILE"
+      grep -vF "$selected" "$QUESTIONS_FILE" > "$QUESTIONS_FILE.tmp" && mv "$QUESTIONS_FILE.tmp" "$QUESTIONS_FILE"
+    fi
     ;;
-  --qs-answered)
-    cat "$ANSWERS_FILE" 2>/dev/null || echo "No answered questions yet."
+  -qs-answered)
+    cat "$ANSWERED_FILE"
+    ;;
+  -daily)
+    write_log "$2"
     ;;
   *)
-    write_log "$*"
+    echo "Invalid command. Use -help for usage."
     ;;
 esac
