@@ -63,7 +63,7 @@ case "$1" in
     i=1
     while IFS= read -r line; do
       echo "$i. $line"
-      eval "todo_$i=\"$line\""
+      eval "todo_$i=\"\$line\""
       i=$((i+1))
     done < "$TODOS_FILE"
 
@@ -71,10 +71,20 @@ case "$1" in
 
     echo -n "> Select item to mark as done: "
     read num
-    selected=$(eval "echo \"\${todo_$num}\"")
+    selected=$(eval "printf '%s' \"\$todo_$num\"")
+
     if [ -n "$selected" ]; then
-      grep -vF "$selected" "$TODOS_FILE" > "$TODOS_FILE.tmp" && mv "$TODOS_FILE.tmp" "$TODOS_FILE"
-      echo "$TODAY: $selected" >> "$DONE_FILE"
+      # Remove from todo.md safely
+      grep -F -v -- "$selected" "$TODOS_FILE" > "$TODOS_FILE.tmp" && mv "$TODOS_FILE.tmp" "$TODOS_FILE"
+      # Append to done.md under dated section
+      {
+        echo ""
+        echo "$TODAY:"
+        echo "$selected"
+      } >> "$DONE_FILE"
+      echo "Marked as done."
+    else
+      echo "Invalid selection."
     fi
     ;;
   -show-done)
@@ -85,9 +95,10 @@ case "$1" in
     ;;
   -qs-view)
     i=1
+    lines=()
     while IFS= read -r line; do
       echo "$i. $line"
-      eval "q_$i=\"$line\""
+      lines+=("$line")
       i=$((i+1))
     done < "$QUESTIONS_FILE"
 
@@ -95,12 +106,23 @@ case "$1" in
 
     echo -n "> Select question to answer: "
     read qnum
-    if [ -n "$selected" ]; then
+
+    if [ "$qnum" -ge 1 ] && [ "$qnum" -le "${#lines[@]}" ]; then
+      selected="${lines[$((qnum-1))]}"
       echo "Answer: "
       read ans
-      echo "$TODAY: Q: $selected" >> "$ANSWERED_FILE"
-      echo "$TODAY: A: $ans" >> "$ANSWERED_FILE"
-      grep -vF "$selected" "$QUESTIONS_FILE" > "$QUESTIONS_FILE.tmp" && mv "$QUESTIONS_FILE.tmp" "$QUESTIONS_FILE"
+      {
+        echo ""
+        echo "$TODAY: Q: $selected"
+        echo "$TODAY: A: $ans"
+      } >> "$ANSWERED_FILE"
+
+      # Delete line using sed
+      sed "${qnum}d" "$QUESTIONS_FILE" > "$QUESTIONS_FILE.tmp" && mv "$QUESTIONS_FILE.tmp" "$QUESTIONS_FILE"
+
+      echo "Marked as answered."
+    else
+      echo "Invalid selection."
     fi
     ;;
   -qs-answered)
@@ -109,6 +131,25 @@ case "$1" in
   -daily)
     write_log "$2"
     ;;
+  -edit)
+   case "$2" in
+     answered)
+       vi "$ANSWERED_FILE"
+       ;;
+     questions)
+       vi "$QUESTIONS_FILE"
+       ;;
+     todo)
+       vi "$TODOS_FILE"
+       ;;
+     done)
+       vi "$DONE_FILE"
+       ;;
+     *)
+       echo "Invalid file. Choose from: answered, questions, todo, done."
+       ;;
+   esac
+    ;;    
   *)
     echo "Invalid command. Use -help for usage."
     ;;
