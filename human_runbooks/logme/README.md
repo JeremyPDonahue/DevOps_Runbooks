@@ -53,6 +53,13 @@ logme --qs-answered     # View all Q&A pairs
 logme --help
 ```
 
+## 🧪 Test the Script
+You can run the provided test script to exercise all core functionality:
+
+```bash
+./test_logme.sh
+```
+
 ### 🧠 Why Use This?
 - Keep context as you work
 - Build a personal knowledge base
